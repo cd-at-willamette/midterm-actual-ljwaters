@@ -1,6 +1,6 @@
 ---
 title: "Characterizing Automobiles"
-author: "Your Name Here"
+author: "Landon Waters"
 date: "03/17/2025"
 
 format: 
@@ -48,10 +48,22 @@ names(Auto)
 - Compute and comment on the RMSE.
 
 ```{r regression}
-# Your code here
+mpg_index = createDataPartition(Auto$mpg, p = 0.80, list = FALSE)
+train = Auto[ mpg_index, ]
+test = Auto[-mpg_index, ]
+
+lm = lm(mpg ~ horsepower + year, data = train)
+
+predicted <- predict(lm, test)
+actual <- test$mpg
+
+rmse=sqrt(mean((actual - predicted)^2))
+rmse
+
+range(Auto$mpg)
 ```
 
-> <span style="color:red;font-weight:bold">TODO</span>: *Explain*
+> <span style="color:red;font-weight:bold">TODO</span>: *The RMSE came out to 4.19377 This is  ~10% of the range of the data. This is a relatively large magnitude of error.*
 
 # Feature Engineering
 
@@ -61,10 +73,37 @@ names(Auto)
 - Compute and comment on the RMSE.
 
 ```{r features}
-# Your code here
+name_mpg=Auto%>%
+  na.omit()%>%
+  mutate(
+    name = as.character(name),
+    ford = ifelse(str_detect(name, "ford"), 1, 0),
+    chevrolet = ifelse(str_detect(name, "chevrolet"), 1, 0),
+    buick = ifelse(str_detect(name, "buick"), 1, 0),
+    toyota = ifelse(str_detect(name, "toyota"), 1, 0),
+    bmw = ifelse(str_detect(name, "bmw"), 1, 0),
+    audi = ifelse(str_detect(name, "audi"), 1, 0),
+    dodge = ifelse(str_detect(name, "dodge"), 1, 0),
+    pontiac = ifelse(str_detect(name, "pontiac"), 1, 0),
+    chrysler = ifelse(str_detect(name, "chrysler"), 1, 0),
+    plymouth = ifelse(str_detect(name, "plymouth"), 1, 0)
+  )%>%
+  select(mpg, ford, chevrolet, buick, toyota, bmw, audi, dodge, pontiac, chrysler, plymouth)
+
+name_index = createDataPartition(name_mpg$mpg, p = 0.80, list = FALSE)
+train = name_mpg[ name_index, ]
+test = name_mpg[-name_index, ]
+
+lm2 = lm(mpg ~ ., data = train)
+
+predicted <- predict(lm2, test)
+actual <- test$mpg
+
+rmse=sqrt(mean((actual - predicted)^2))
+rmse
 ```
 
-> <span style="color:red;font-weight:bold">TODO</span>: *Explain*
+> <span style="color:red;font-weight:bold">TODO</span>: *Our RMSE came out as 7.486767, which is worse than the previous model. This is most likely due to different car brands not being great indicators of fuel efficiency because of the variability in MPG between the variety of car models they have. A better indicator may be diving deeper to find indicators on the types of vehicles that the car models are.*
 
 # Classification
 
@@ -73,10 +112,45 @@ names(Auto)
 - Report on your Kappa value.
 
 ```{r classification}
-# Your code here
+# Scale the data
+honda_chevy = Auto%>% 
+  na.omit()%>%
+  mutate(
+    across(where(is.numeric), scale),
+    is_chevonda = as.factor(
+      ifelse(str_detect(name, "chevrolet|honda"), 1, 0)
+      )
+  )%>%
+  select(-name)
+
+# Split the data
+car_index = createDataPartition(honda_chevy$is_chevonda, p = 0.80, list = FALSE)
+train = honda_chevy[ car_index, ]
+test = honda_chevy[-car_index, ]
+
+# Find best k value
+tune_k = train(
+  x = select(train, -is_chevonda),
+  y = train$is_chevonda,
+  method = "knn",
+  tuneGrid = expand.grid(k = 1:20),
+  trControl = trainControl(method = "cv")
+)
+# print(tune_k)
+
+# Train the model
+fit = knn(
+  train = select(train,-is_chevonda), 
+  test = select(test,-is_chevonda), 
+  k=2, # might be overfitting data, but kappa is significantly improved...
+  cl = train$is_chevonda)
+
+# Confusion Matrix
+conf_matrix = confusionMatrix(fit, test$is_chevonda)
+print(conf_matrix)
 ```
 
-> <span style="color:red;font-weight:bold">TODO</span>: *Explain*
+> <span style="color:red;font-weight:bold">TODO</span>: *I chose to use $K$-NN due to the data being primarily numeric. Unfortunately, the model did not perform well (kappa = 0.2875) at correctly identifying when the car model was Chevy or Honda. It did perform well identifying true negative. Some feature engineering based around indicators for Chevy or Honda car models or weighting would likely aid in the models ability to better identify the minority class.*
 
 # Binary Classification
 
@@ -85,15 +159,51 @@ names(Auto)
 - Display and comment on an ROC curve.
 
 ```{r binary classification}
-# Your code here
+sh(library(kknn))
+
+honda=Auto%>%
+  na.omit()%>%
+  mutate(
+    is_honda = as.factor(ifelse(str_detect(name, "honda"), 1, 0))
+  )%>%
+  select(-name)
+
+# Split the data
+honda_index = createDataPartition(honda$is_honda, p = 0.80, list = FALSE)
+train = honda[ honda_index, ]
+test = honda[-honda_index, ]
+
+# Train weighted KNN
+fit = kknn(
+  is_honda ~ ., 
+  train = train, 
+  test = test, 
+  k = 5, 
+  kernel = "optimal"  # Uses distance-based weighting
+)
+# Predictions for kknn
+predictions <- fitted(fit)
+
+# Confusion Matrix
+conf_matrix = confusionMatrix(predictions, test$is_honda)
+#print(conf_matrix)
+#precision = conf_matrix$byClass["Precision"]
+#recall = conf_matrix$byClass["Recall"]
+
+# ROC and AUC
+sh(library(pROC))
+prob=predict(fit, newdata = test, type = "prob")[,2]
+myRoc <- roc(test$is_honda, prob)
+plot(myRoc)
+auc(myRoc)
 ```
 
-> <span style="color:red;font-weight:bold">TODO</span>: *Explain*
+> <span style="color:red;font-weight:bold">TODO</span>: *The ROC curve shows that the model is very close to the top of left corner of the plot which indicates very good classification capabilities. It returned an AUC of 0.99, which is great. This implies that the model has very strong discriminatory power. However, the high precision (0.98) and recall (1) could be misleading as the dataset is heavily imbalanced toward non-Hondas. The kappa is OK (0.6608), but I am assuming that the model is just heavily favoring the majority class.*
 
 # Ethics
 
 - Based on your analysis, comment on the [Clean Air Act of 1970 and Ammendments of 1977](https://www.epa.gov/clean-air-act-overview/evolution-clean-air-act)
-- Discuss the civic reposibilities of data scientists for:
+- Discuss the civic responsibilities of data scientists for:
     - Big Data and Human-Centered Computing
     - Democratic Institutions
     - Climate Change
@@ -101,18 +211,56 @@ names(Auto)
 
 > <span style="color:red;font-weight:bold">TODO</span>: Big Data and Human-Centered Computing
 
+*The statistically significant positive relationship between year and mpg may indicate technological progress and policy on fuel efficiency are having a positive effect. Big data can track real-world trends that impact people. Human-centered computing ensures that these insights are used ethically, whether to inform consumer choices or create better policies. The RMSE of our regression model was 3.341141, which shows that it is solid, but not perfect. Communicating these uncertainties clearly is essential so that decision makers not overrelying on models that are far from perfect.*
+
 ```{r big data}
-# Your code here
+Auto = na.omit(Auto)
+
+trainIndex = createDataPartition(Auto$mpg, p = 0.80, list = FALSE)
+train = Auto[trainIndex, ]
+test = Auto[-trainIndex, ]
+
+big_data = lm(mpg ~ horsepower + weight + year + acceleration, data = train)
+
+predictions = predict(big_data, test)
+
+rmse = sqrt(mean((predictions - test$mpg)^2))
+print(rmse)
 ```
 
 > <span style="color:red;font-weight:bold">TODO</span>: Democratic Institutions
 
+*Data science supports democratic institutions by informing policy makers. Our kappa score was 0.7692308, showing that fuel efficiency is a predictable trait. This reinforces the role of data science in shaping evidence-based environmental policies by providing insights into how we can set standards in vehicles.*
+
 ```{r democracy}
-# Your code here
+# fuel-efficient vs non-fuel-efficient cars
+democracy = Auto%>%
+  mutate(is_fuel_efficient = as.factor(ifelse(Auto$mpg > median(Auto$mpg), 1, 0)))%>%
+  select(-mpg, -name, - origin)
+
+trainIndex = createDataPartition(democracy$is_fuel_efficient, p = 0.80, list = FALSE)
+train = democracy[trainIndex, ]
+test = democracy[-trainIndex, ]
+
+fit = kknn(is_fuel_efficient ~ ., 
+           train = train, 
+           test = test, 
+           k = 5
+          )
+predictions = fitted(fit)
+
+conf_matrix = confusionMatrix(factor(predictions, levels = c(0, 1)), 
+                                     factor(test$is_fuel_efficient))
+conf_matrix$overall["Kappa"]
 ```
 
 > <span style="color:red;font-weight:bold">TODO</span>: Climate Change
 
+*We know what makes vehicles more fuel efficient, and it shows by our high AUC (0.9523). By leveraging predictive models, policymakers, businesses, and consumers can accelerate the shift to cleaner transportation, ultimately reducing greenhouse gas emissions and promoting sustainability.*
+
 ```{r climate}
-# Your code here
+prob = predict(fit, newdata = test, type = "prob")[, "1"]
+myRoc = roc(test$is_fuel_efficient, prob)
+plot(myRoc)
+auc(myRoc)
 ```
